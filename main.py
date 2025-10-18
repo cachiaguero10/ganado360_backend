@@ -1,11 +1,8 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from utils.detector import contar_vacas
-from io import BytesIO
-import base64
-from PIL import Image
+import uvicorn
 
-app = FastAPI(title="Ganado360 Backend YOLOv8")
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,17 +13,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "Servidor Ganado360 con YOLOv8 activo ✅"}
+    return {"message": "Backend Ganado360 activo"}
 
-@app.post("/count")
-async def count(file: UploadFile = File(...)):
-    contents = await file.read()
-    image = Image.open(BytesIO(contents)).convert("RGB")
-
-    count, result_image = contar_vacas(image)
-
-    buffer = BytesIO()
-    result_image.save(buffer, format="JPEG")
-    img_str = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-    return {"vacas_detectadas": count, "imagen_resultado": img_str}
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=10000)

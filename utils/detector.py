@@ -1,26 +1,21 @@
-from ultralytics import YOLO
-import numpy as np
-from PIL import Image, ImageDraw
+import torch
+from PIL import Image
+import io
 
-# Carga el modelo YOLOv8 (descarga automática si no existe)
-model = YOLO("yolov8n.pt")
+# Cargar modelo YOLOv5 (liviano)
+model = torch.hub.load('ultralytics/yolov5', 'yolov5n', pretrained=True)
 
-def contar_vacas(pil_image):
-    """Detecta vacas en la imagen y devuelve cantidad + imagen marcada"""
-    results = model.predict(pil_image, conf=0.35, verbose=False)
+async def detectar_vacas(file):
+    image_bytes = await file.read()
+    image = Image.open(io.BytesIO(image_bytes))
 
-    # Dibujar las detecciones
-    image = pil_image.copy()
-    draw = ImageDraw.Draw(image)
+    # Procesar la imagen
+    results = model(image)
+    detecciones = results.pandas().xyxy[0]
 
-    count = 0
-    for r in results[0].boxes:
-        cls_id = int(r.cls[0])
-        label = model.names[cls_id]
-        if label.lower() in ["cow", "cattle", "bull"]:
-            count += 1
-            x1, y1, x2, y2 = r.xyxy[0].tolist()
-            draw.rectangle([x1, y1, x2, y2], outline="green", width=3)
-            draw.text((x1, y1 - 10), "Vaca", fill="white")
-
-    return count, image
+    # Contar solo las vacas detectadas
+    vacas = len(detecciones[detecciones['name'] == 'cow'])
+    return {
+        "total_vacas": int(vacas),
+        "detecciones": detecciones.to_dict(orient="records")
+    }
