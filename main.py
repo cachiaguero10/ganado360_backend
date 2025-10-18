@@ -1,54 +1,66 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+import torch
+from torch.serialization import add_safe_globals
 from ultralytics import YOLO
+import ultralytics.nn.tasks as tasks
 from PIL import Image
 import io
-import base64
+import os
 
-# Inicialización de FastAPI
-app = FastAPI(title="Ganado360 Backend", description="API para conteo de vacas con YOLOv8", version="1.0")
+# === Configuración de seguridad para PyTorch ===
+add_safe_globals([tasks.DetectionModel])
 
-# Cargar el modelo YOLOv8 (ligero y rápido)
-RUTA_DEL_MODELO = "yolov8n.pt"
-modelo = YOLO(RUTA_DEL_MODELO)
+# === Inicialización de FastAPI ===
+app = FastAPI(title="Ganado360 - Detección de Vacas", version="1.0")
 
+# === Permitir acceso desde cualquier origen (para Flutter o web) ===
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# === Cargar modelo YOLO ===
+RUTA_DEL_MODELO = os.path.join("modelos", "yolov8n.pt")
+print(f"Cargando modelo desde: {RUTA_DEL_MODELO}")
+
+try:
+    modelo = YOLO(RUTA_DEL_MODELO)
+    print("✅ Modelo YOLO cargado correctamente")
+except Exception as e:
+    print(f"❌ Error al cargar el modelo: {e}")
+
+# === Ruta principal ===
 @app.get("/")
 def root():
-    return {"status": "Servidor activo", "modelo": "YOLOv8n listo"}
+    return {"estado": "servidor activo", "modelo": "Ganado360"}
 
-
-@app.post("/contar/")
+# === Endpoint para procesar imagen ===
+@app.post("/contar_vacas/")
 async def contar_vacas(file: UploadFile = File(...)):
     try:
-        # Leer imagen subida
-        contents = await file.read()
-        image = Image.open(io.BytesIO(contents))
+        # Leer la imagen recibida
+        contenido = await file.read()
+        imagen = Image.open(io.BytesIO(contenido))
 
         # Ejecutar detección
-        resultados = modelo(image)
+        resultados = modelo(imagen)
 
-        # Contar cuántas detecciones hay de tipo 'cow' (vaca)
-        conteo_vacas = 0
+        # Contar detecciones de vacas
+        conteo = 0
         for r in resultados:
-            if r.names:
-                for clase_id in r.boxes.cls:
-                    nombre_clase = r.names[int(clase_id)]
-                    if nombre_clase.lower() == "cow":
-                        conteo_vacas += 1
+            nombres = r.names
+            clases_detectadas = r.boxes.cls.tolist()
+            for clase in clases_detectadas:
+                nombre = nombres[int(clase)]
+                if nombre.lower() in ["cow", "vaca", "cattle"]:
+                    conteo += 1
 
-        # Convertir imagen resultante a base64 para enviar marcada
-        img_result = resultados[0].plot()  # imagen con cajas
-        img_pil = Image.fromarray(img_result)
-        buffer = io.BytesIO()
-        img_pil.save(buffer, format="JPEG")
-        img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-        return JSONResponse({
-            "resultado": "ok",
-            "total_vacas": conteo_vacas,
-            "imagen_marcada": img_base64
-        })
+        # Responder con el conteo
+        return JSONResponse(content={"vacas_detectadas": conteo})
 
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse(content={"error": str(e)}, status_code=500)
