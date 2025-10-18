@@ -15,7 +15,7 @@ add_safe_globals([tasks.DetectionModel])
 # === Inicialización de FastAPI ===
 app = FastAPI(title="Ganado360 - Detección de Vacas", version="1.0")
 
-# === Permitir acceso desde cualquier origen (para Flutter o web) ===
+# === Permitir acceso desde cualquier origen (Flutter o Web) ===
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,11 +24,19 @@ app.add_middleware(
 )
 
 # === Cargar modelo YOLO ===
+os.makedirs("modelos", exist_ok=True)  # crea la carpeta si no existe
 RUTA_DEL_MODELO = os.path.join("modelos", "yolov8n.pt")
 print(f"Cargando modelo desde: {RUTA_DEL_MODELO}")
 
 try:
-    modelo = YOLO(RUTA_DEL_MODELO)
+    # si el modelo no está, se descarga automáticamente
+    if not os.path.exists(RUTA_DEL_MODELO):
+        print("Descargando modelo YOLOv8n...")
+        modelo = YOLO("yolov8n.pt")  # descarga el modelo base
+        modelo.save(RUTA_DEL_MODELO)
+    else:
+        modelo = YOLO(RUTA_DEL_MODELO)
+
     print("✅ Modelo YOLO cargado correctamente")
 except Exception as e:
     print(f"❌ Error al cargar el modelo: {e}")
@@ -63,4 +71,5 @@ async def contar_vacas(file: UploadFile = File(...)):
         return JSONResponse(content={"vacas_detectadas": conteo})
 
     except Exception as e:
+        print(f"⚠ Error procesando imagen: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
