@@ -51,17 +51,18 @@ async def contar_vacas(file: UploadFile = File(...)):
         contenido = await file.read()
         imagen = Image.open(io.BytesIO(contenido))
 
-        resultados = modelo.predict(source=imagen, conf=0.25, iou=0.45, verbose=False)
+        resultados = modelo(imagen)
 
         conteo = 0
         for r in resultados:
             nombres = r.names
-            clases_detectadas = r.boxes.cls.tolist()
+            clases_detectadas = r.boxes.cls.tolist() if r.boxes is not None else []
             for clase in clases_detectadas:
                 nombre = nombres[int(clase)]
                 if nombre.lower() in ["cow", "vaca", "cattle"]:
                     conteo += 1
 
+        print(f"✅ Conteo realizado: {conteo}")
         return JSONResponse(content={"vacas_detectadas": conteo})
 
     except Exception as e:
