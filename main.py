@@ -1,20 +1,22 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+import torch
 from torch.serialization import add_safe_globals
 from ultralytics import YOLO
 import ultralytics.nn.tasks as tasks
 from PIL import Image
 import io
 import os
+import time
 
-# === Configuración segura de PyTorch ===
+# === Seguridad PyTorch ===
 add_safe_globals([tasks.DetectionModel])
 
-# === Inicialización de la API ===
-app = FastAPI(title="Ganado360 - Conteo de Ganado YOLOv8s", version="1.0")
+# === Inicialización ===
+app = FastAPI(title="Ganado360 - Detección de Vacas", version="2.0")
 
-# === CORS (permite conexión desde app Flutter o Web) ===
+# === Permitir acceso desde Flutter / Web ===
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,48 +24,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# === Configurar modelo YOLOv8s ===
+# === Cargar modelo YOLOv8s ===
 os.makedirs("modelos", exist_ok=True)
 RUTA_DEL_MODELO = os.path.join("modelos", "yolov8s.pt")
-
 print(f"Cargando modelo desde: {RUTA_DEL_MODELO}")
 
 try:
     if not os.path.exists(RUTA_DEL_MODELO):
         print("Descargando modelo YOLOv8s...")
-        modelo = YOLO("yolov8s.pt")  # descarga automática
+        modelo = YOLO("yolov8s.pt")  # descarga oficial
+        modelo.save(RUTA_DEL_MODELO)
     else:
         modelo = YOLO(RUTA_DEL_MODELO)
-
     print("✅ Modelo YOLOv8s cargado correctamente")
 except Exception as e:
     print(f"❌ Error al cargar el modelo: {e}")
+    modelo = None
 
-# === Endpoint raíz ===
+# === Ruta principal ===
 @app.get("/")
 def root():
-    return {"estado": "servidor activo", "modelo": "Ganado360 YOLOv8s"}
+    return {"estado": "servidor activo", "modelo": "Ganado360 v8s"}
 
-# === Endpoint para contar vacas ===
+# === Endpoint para procesar imagen ===
 @app.post("/contar_vacas/")
 async def contar_vacas(file: UploadFile = File(...)):
+    inicio = time.time()
     try:
+        if modelo is None:
+            return JSONResponse(content={"error": "Modelo no cargado"}, status_code=500)
+
         contenido = await file.read()
         imagen = Image.open(io.BytesIO(contenido))
 
-        resultados = modelo(imagen)
+        # Ejecutar detección con confianza mínima baja
+        resultados = modelo.predict(imagen, conf=0.15, imgsz=640, verbose=False)
 
+        # Contar vacas detectadas
         conteo = 0
         for r in resultados:
-            nombres = r.names
-            clases_detectadas = r.boxes.cls.tolist() if r.boxes is not None else []
-            for clase in clases_detectadas:
-                nombre = nombres[int(clase)]
+            for clase in r.boxes.cls.tolist():
+                nombre = r.names[int(clase)]
                 if nombre.lower() in ["cow", "vaca", "cattle"]:
                     conteo += 1
 
-        print(f"✅ Conteo realizado: {conteo}")
-        return JSONResponse(content={"vacas_detectadas": conteo})
+        duracion = round(time.time() - inicio, 2)
+        print(f"✅ Detección completada en {duracion}s - Vacas: {conteo}")
+
+        return JSONResponse(
+            content={
+                "vacas_detectadas": conteo,
+                "tiempo_procesamiento": f"{duracion}s",
+            }
+        )
 
     except Exception as e:
         print(f"⚠ Error procesando imagen: {e}")
